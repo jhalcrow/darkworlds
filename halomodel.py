@@ -11,6 +11,8 @@ XMAX = 4200
 YMAX = 4200
 
 halo_mass_dist_params = (1.794052966939786, -0.92368781464069372, 28.690645093008492)
+bipolar_halo_mass_dist_params = (1.521464802971525, 3.1027791602077879, 27.756491234542331)
+
 mass_prior = dict()
 semi_mass_prior = dict()
 
@@ -18,9 +20,11 @@ with open('mass_prior.csv') as f:
     for line in f:
         w, l = line.split(',')
         mass_prior[int(w)] = float(l)
-        if w not in semi_mass_prior:
-            semi_mass_prior[int(w) / 2] = 0
-        semi_mass_prior[int(w) / 2] += float(l)
+
+with open('bipole_mass_prior.csv') as f:
+    for line in f:
+        w, l = line.split(',')
+        semi_mass_prior[int(w)] = float(l)
 
 
 def list_distance(l1, l2):
