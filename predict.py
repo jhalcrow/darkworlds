@@ -152,7 +152,7 @@ def predict(outfile, sky_ids, test=False, datadir='/data'):
                 best_w = optimize_weight(sky, true_halos)
                 print 'True LL', sky_likelihood(sky, true_halos, best_w)
                 
-            if num_halos == -1:
+            if num_halos == 1:
                 lls = brute_force(sky, num_halos, dx=50, dw=10)
                 ll, prediction, _ = lls[0]
             else:
@@ -167,6 +167,7 @@ def predict(outfile, sky_ids, test=False, datadir='/data'):
             for i in range(len(prediction)):
                 halo_pos[i] = prediction[i]
             out_line = ['Sky%s' % sky_id] + [hc for h in prediction for hc in h]
+            out_line.extend([0,0] * (3 - num_halos))
             out.writerow(out_line)
             f.flush()
 
@@ -184,7 +185,8 @@ def best_halo_dist(halos1, halos2):
 if __name__ == '__main__':
 
 
-    predict(sys.argv[1], range(int(sys.argv[2]), int(sys.argv[3])), True)
+    #predict(sys.argv[1], range(int(sys.argv[2]), int(sys.argv[3])), True)
     #predict(sys.argv[1], range(1, 3) + range(101, 103) + range(201, 203), False)
     #predict(sys.argv[1], range(101, 105), False)
+    predict(sys.argv[1], range(1, 3), False)
 
