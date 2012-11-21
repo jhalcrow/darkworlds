@@ -34,6 +34,12 @@ struct ScoredHalo {
     ScoredHalo(Halo halo_, double score_) : halo(halo_), score(score_) {};
 };
 
+struct Range {
+    float min;
+    float max;
+    float dx;
+};
+
 
 class Sky {
 private:
@@ -42,10 +48,12 @@ private:
 public:
     std::vector<Galaxy> sky;
 
-    Sky(int id, bool test);
+    std::map<int, float> prior;
+
+    Sky(int id, bool test, const std::map<int, float>& prior_);
 
     void unwarp_sky(std::vector<Halo> halos);
 
-    double likelihood(std::vector<Halo> halos);
-    double likelihood(Halo h);
+    double likelihood(const std::vector<Halo>& halos) const;
+    double likelihood(const Halo& h) const;
 };

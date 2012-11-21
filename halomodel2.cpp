@@ -12,11 +12,11 @@
 
 using namespace std;
 
-float dist(Halo h1, Halo h2) {
+float dist(const Halo& h1, const Halo& h2) {
     return sqrt(pow((h1.pos.x - h2.pos.x), 2) + pow((h1.pos.y - h2.pos.y), 2));
 }
 
-float dist(ScoredHalo h1, ScoredHalo h2) {
+float dist(const ScoredHalo& h1, const ScoredHalo& h2) {
     return dist(h1.halo, h2.halo);
 }
 
@@ -32,10 +32,10 @@ vector<float> range(float min, float max, float dx) {
     return vals;
 }
 
-Ellipticity unwarp(Galaxy g, vector<Halo> halos) {
+Ellipticity unwarp(const Galaxy& g, const vector<Halo> halos) {
     Ellipticity e(g.e.e1, g.e.e2);
 
-    for(Halo &h: halos) {
+    for(auto h: halos) {
         double dx = g.pos.x - h.pos.x;
         double dy = g.pos.y - h.pos.y;
         double r3 = pow(dx*dx + dy*dy, 1.5);
@@ -46,7 +46,7 @@ Ellipticity unwarp(Galaxy g, vector<Halo> halos) {
     return e;
 }
 
-Ellipticity unwarp(Galaxy g, Halo h) {
+Ellipticity unwarp(const Galaxy& g, const Halo& h) {
     Ellipticity e(g.e.e1, g.e.e2);
 
     double dx = g.pos.x - h.pos.x;
@@ -59,7 +59,7 @@ Ellipticity unwarp(Galaxy g, Halo h) {
     return e;
 }
 
-Sky::Sky(int id, bool test) : sky() {
+Sky::Sky(int id, bool test, const std::map<int,float>& prior_) : sky(), prior(prior_) {
     ifstream sky_file;
     string filename;
     stringstream ssfilename( "data/", stringstream::in | stringstream::out); 
@@ -103,10 +103,13 @@ Sky::Sky(int id, bool test) : sky() {
     sky_file.close();
 }
 
-double Sky::likelihood(vector<Halo> halos) {
+double Sky::likelihood(const vector<Halo>& halos) const {
     double ll = 0.0;
+    for (auto h: halos) {
+        ll += this->prior.at(static_cast<int>(h.weight));
+    }
 
-    for (Galaxy &g : sky) {
+    for (auto g : sky) {
         Ellipticity e = unwarp(g, halos);
         ll -= e.e1 * e.e1 + e.e2 * e.e2;
     }
@@ -114,10 +117,10 @@ double Sky::likelihood(vector<Halo> halos) {
     return ll;
 }
 
-double Sky::likelihood(Halo h) {
-    double ll = 0.0;
+double Sky::likelihood(const Halo& h) const {
+    double ll = this->prior.at(static_cast<int>(h.weight));
 
-    for (Galaxy &g : sky) {
+    for (auto g : sky) {
         Ellipticity e = unwarp(g, h);
         ll -= e.e1 * e.e1 + e.e2 * e.e2;
     }
@@ -125,38 +128,29 @@ double Sky::likelihood(Halo h) {
     return ll;
 }
 
-vector<ScoredHalo> scan_pos(Sky sky, int n, map<int, float> prior) {
+vector<ScoredHalo> scan_pos(const Sky& sky, const int n, const Range xrange, const Range yrange, const Range wrange) {
     const double dist_cutoff = 300.0;
-    const double dx = 50.0;
-    const double dw = 10.0;
 
+    const int nx = static_cast<int>((xrange.max - xrange.min) / xrange.dx);
+    const int ny = static_cast<int>((yrange.max - yrange.min) / yrange.dx);
+    const int nw = static_cast<int>((wrange.max - wrange.min) / wrange.dx);
 
-    const int nx = (int) (4200 / dx);
-    const int ny = (int) (4200 / dx);
-    const int nw = (int) (190 / dw);
     auto comp = []( ScoredHalo h1, ScoredHalo h2 ) { return h1.score < h2.score; };
     priority_queue<ScoredHalo, vector<ScoredHalo>, decltype(comp)> scores( comp );
 
-    Halo h(Position(0.0, 0.0), 90.0);
+    Halo h(Position(xrange.min, yrange.min), wrange.min);
 
     for(int ix=0; ix < nx; ++ix) {
-        h.pos.x += dx;
-        h.pos.y = 0;
+        h.pos.x += xrange.dx;
+        h.pos.y = yrange.min;
         for(int iy=0; iy < ny; ++iy) {
-            h.pos.y += dx;
-            h.weight = 10;
+            h.pos.y += yrange.dx;
+            h.weight = wrange.min;
             for(int iw=0; iw < nw; ++iw) {
-                h.weight += dw;
+                h.weight += wrange.dx;
                 double ll = sky.likelihood(h);
-                ll += prior[static_cast<int>(h.weight)];
-
-                //if(scores.size() == 0|| ll > scores.top().score) {
-                   /* if(scores.size() == 9*n) {
-                        scores.pop();
-                    }*/
-                    ScoredHalo newh(Halo(Position(h.pos.x, h.pos.y), h.weight), ll);
-                    scores.push(newh);
-                //}
+                ScoredHalo newh(Halo(Position(h.pos.x, h.pos.y), h.weight), ll);
+                scores.push(newh);
             }
         }
     }
@@ -204,7 +198,7 @@ map<int, float> load_mass_prior(string filename) {
 
             ss >> w >> c >> pdf;
 
-            prior[c] = pdf;
+            prior[w] = pdf;
         }
     }
     return prior;
@@ -238,19 +232,76 @@ vector<int> load_halo_counts(const bool test) {
     return counts;
 }
 
+vector<Halo> best_n(const Sky& sky, const vector<ScoredHalo>& scores, const int n) {
+
+    vector<Halo> best;
+    double best_score=-1000000000000;
+
+    if (n == 1) {
+        best.push_back(scores[0].halo);
+        return best;
+        // This is awful 
+    } else if (n == 2) {
+        for(int i = 0; i < scores.size(); ++i) {
+            for(int j = i + 1; j < scores.size(); ++j) {
+                vector<Halo> halo_set;
+                halo_set.push_back(scores[i].halo);
+                halo_set.push_back(scores[j].halo);
+                double score = sky.likelihood(halo_set);
+                if (score > best_score) {
+                    best_score = score;
+                    best = halo_set;
+                }
+
+            }
+        }
+    }
+    if (n == 3) {
+        for(int i = 0; i < scores.size(); ++i) {
+            for(int j = i + 1; j < scores.size(); ++j) {
+                for(int k = j + 1; k < scores.size(); ++k) {
+                    vector<Halo> halo_set;
+                    halo_set.push_back(scores[i].halo);
+                    halo_set.push_back(scores[j].halo);
+                    halo_set.push_back(scores[k].halo);
+                    double score = sky.likelihood(halo_set);
+                    if (score > best_score) {
+                        best_score = score;
+                        best = halo_set;
+                    }
+                }
+            }
+        }
+    }
+
+    return best;
+
+}
+
+
 int main() {
 
     const bool test = false;
     map<int, float> prior = load_mass_prior("mass_prior.csv");
     vector<int> num_halos = load_halo_counts(test);
 
-    for(int i = 1; i <= 30; ++i) {
-        Sky sky(i, test);
-        vector<ScoredHalo> scores = scan_pos(sky, 40, prior);
-        ScoredHalo best = scores[0];
+    Range xrange = {0, 4200, 50};
+    Range yrange = {0, 4200, 50};
+    Range wrange = {10, 240, 20};
 
-        cout << "Sky" << i << "," << best.halo.pos.x << "," << best.halo.pos.y;
+    for(int i = 1; i < 2; ++i) {
+
+        Sky sky(i, test, prior);
         int halos = num_halos[i];
+        cout << "Sky" << i;
+
+        vector<ScoredHalo> scores = scan_pos(sky, 40, xrange, yrange, wrange);
+        
+        vector<Halo> best_scores = best_n(sky, scores, halos);
+        for(auto halo: best_scores) {
+            cout << "," << halo.pos.x << "," << halo.pos.y;
+        }
+        
         while(halos < 3) {
             cout << ",0,0";
             halos++;
